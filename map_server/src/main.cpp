@@ -45,6 +45,7 @@
 #include "map_server/image_loader.h"
 #include "nav_msgs/MapMetaData.h"
 #include "yaml-cpp/yaml.h"
+#include "move_base_msgs/LoadMap.h"
 
 #ifdef HAVE_NEW_YAMLCPP
 // The >> operator disappeared in yaml-cpp 0.5, so this function is
@@ -221,30 +222,57 @@ class MapServer
 
 };
 
-int main(int argc, char **argv)
+bool load_map(move_base_msgs::LoadMap::Request  &req,
+         move_base_msgs::LoadMap::Response &res)
 {
-  ros::init(argc, argv, "map_server", ros::init_options::AnonymousName);
-  if(argc != 3 && argc != 2)
-  {
-    ROS_ERROR("%s", USAGE);
-    exit(-1);
-  }
-  if (argc != 2) {
-    ROS_WARN("Using deprecated map server interface. Please switch to new interface.");
-  }
-  std::string fname(argv[1]);
-  double res = (argc == 2) ? 0.0 : atof(argv[2]);
-
   try
   {
-    MapServer ms(fname, res);
-    ros::spin();
+    MapServer ms(req.name, 0.0);
   }
   catch(std::runtime_error& e)
   {
     ROS_ERROR("map_server exception: %s", e.what());
-    return -1;
+    res.response = -1;
+    res.message = "map_server exception: "+ std::string(e.what());
+    return false;
   }
+
+  res.response = 0;
+  res.message = "map" + req.name + "loaded.";
+  return true;
+}
+
+int main(int argc, char **argv)
+{
+  ros::init(argc, argv, "map_server", ros::init_options::AnonymousName);
+  if(argc != 3 && argc != 2 && argc != 1)
+  {
+    ROS_ERROR("%s", USAGE);
+    exit(-1);
+  }
+  if (argc != 2 && argc != 1) {
+    ROS_WARN("Using deprecated map server interface. Please switch to new interface.");
+  }
+  if (argc != 1) {
+    std::string fname(argv[1]);
+    double res = (argc == 2) ? 0.0 : atof(argv[2]);
+
+    try
+    {
+      MapServer ms(fname, res);
+      ros::spin();
+    }
+    catch(std::runtime_error& e)
+    {
+      ROS_ERROR("map_server exception: %s", e.what());
+      return -1;
+    }
+  } else {
+    ros::NodeHandle n;
+    ros::ServiceServer service = n.advertiseService("map_server/load_map", load_map);
+    ros::spin();
+  }
+
 
   return 0;
 }

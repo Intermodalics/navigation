@@ -253,24 +253,22 @@ int main(int argc, char **argv)
   if (argc != 2 && argc != 1) {
     ROS_WARN("Using deprecated map server interface. Please switch to new interface.");
   }
-  if (argc != 1) {
-    std::string fname(argv[1]);
-    double res = (argc == 2) ? 0.0 : atof(argv[2]);
 
-    try
-    {
-      MapServer ms(fname, res);
-      ros::spin();
-    }
-    catch(std::runtime_error& e)
-    {
-      ROS_ERROR("map_server exception: %s", e.what());
-      return -1;
-    }
-  } else {
-    ros::NodeHandle n;
-    ros::ServiceServer service = n.advertiseService("map_server/load_map", load_map);
+  ros::NodeHandle n;
+  ros::ServiceServer service = n.advertiseService("map_server/load_map", load_map);
+
+  std::string fname(argv[1]);
+  double res = (argc == 2) ? 0.0 : atof(argv[2]);
+
+  try
+  {
+    MapServer ms(fname, res);
     ros::spin();
+  }
+  catch(std::runtime_error& e)
+  {
+    ROS_ERROR("map_server exception: %s", e.what());
+    return -1;
   }
 
 

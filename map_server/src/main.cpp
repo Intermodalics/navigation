@@ -238,7 +238,7 @@ bool load_map(move_base_msgs::LoadMap::Request  &req,
   }
 
   res.response = 0;
-  res.message = "map" + req.name + "loaded.";
+  res.message = "map " + req.name + " loaded successfully.";
   return true;
 }
 

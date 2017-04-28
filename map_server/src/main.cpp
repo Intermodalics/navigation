@@ -61,9 +61,22 @@ class MapServer
 {
   public:
     /** Trivial constructor */
-    MapServer(const std::string& fname, double res)
+    MapServer()
     {
-      std::string mapfname = "";   
+      service = n.advertiseService("static_map", &MapServer::mapCallback, this);
+      load_map_srv_handle = n.advertiseService("map_server/load_map", &MapServer::loadMapService, this);
+
+      // Latched publisher for metadata
+      metadata_pub= n.advertise<nav_msgs::MapMetaData>("map_metadata", 1, true);
+      
+      // Latched publisher for data
+      map_pub = n.advertise<nav_msgs::OccupancyGrid>("map", 1, true);
+    }
+
+    /** Function to load a specific map */
+    bool loadMap(const std::string& fname, double res)
+    {
+      std::string mapfname = "";
       double origin[3];
       int negate;
       double occ_th, free_th;
@@ -78,7 +91,7 @@ class MapServer
         std::ifstream fin(fname.c_str());
         if (fin.fail()) {
           ROS_ERROR("Map_server could not open %s.", fname.c_str());
-          exit(-1);
+          return false;
         }
 #ifdef HAVE_NEW_YAMLCPP
         // The document loading process changed in yaml-cpp 0.5.
@@ -88,31 +101,31 @@ class MapServer
         YAML::Node doc;
         parser.GetNextDocument(doc);
 #endif
-        try { 
-          doc["resolution"] >> res; 
-        } catch (YAML::InvalidScalar) { 
+        try {
+          doc["resolution"] >> res;
+        } catch (YAML::InvalidScalar) {
           ROS_ERROR("The map does not contain a resolution tag or it is invalid.");
-          exit(-1);
+          return false;
         }
-        try { 
-          doc["negate"] >> negate; 
-        } catch (YAML::InvalidScalar) { 
+        try {
+          doc["negate"] >> negate;
+        } catch (YAML::InvalidScalar) {
           ROS_ERROR("The map does not contain a negate tag or it is invalid.");
-          exit(-1);
+          return false;
         }
-        try { 
-          doc["occupied_thresh"] >> occ_th; 
-        } catch (YAML::InvalidScalar) { 
+        try {
+          doc["occupied_thresh"] >> occ_th;
+        } catch (YAML::InvalidScalar) {
           ROS_ERROR("The map does not contain an occupied_thresh tag or it is invalid.");
-          exit(-1);
+          return false;
         }
-        try { 
-          doc["free_thresh"] >> free_th; 
-        } catch (YAML::InvalidScalar) { 
+        try {
+          doc["free_thresh"] >> free_th;
+        } catch (YAML::InvalidScalar) {
           ROS_ERROR("The map does not contain a free_thresh tag or it is invalid.");
-          exit(-1);
+          return false;
         }
-        try { 
+        try {
           std::string modeS = "";
           doc["mode"] >> modeS;
 
@@ -124,27 +137,27 @@ class MapServer
             mode = RAW;
           else{
             ROS_ERROR("Invalid mode tag \"%s\".", modeS.c_str());
-            exit(-1);
+            return false;
           }
-        } catch (YAML::Exception) { 
+        } catch (YAML::Exception) {
           ROS_DEBUG("The map does not contain a mode tag or it is invalid... assuming Trinary");
           mode = TRINARY;
         }
-        try { 
-          doc["origin"][0] >> origin[0]; 
-          doc["origin"][1] >> origin[1]; 
-          doc["origin"][2] >> origin[2]; 
-        } catch (YAML::InvalidScalar) { 
+        try {
+          doc["origin"][0] >> origin[0];
+          doc["origin"][1] >> origin[1];
+          doc["origin"][2] >> origin[2];
+        } catch (YAML::InvalidScalar) {
           ROS_ERROR("The map does not contain an origin tag or it is invalid.");
-          exit(-1);
+          return false;
         }
-        try { 
-          doc["image"] >> mapfname; 
+        try {
+          doc["image"] >> mapfname;
           // TODO: make this path-handling more robust
           if(mapfname.size() == 0)
           {
             ROS_ERROR("The image tag cannot be an empty string.");
-            exit(-1);
+            return false;
           }
           if(mapfname[0] != '/')
           {
@@ -153,9 +166,9 @@ class MapServer
             mapfname = std::string(dirname(fname_copy)) + '/' + mapfname;
             free(fname_copy);
           }
-        } catch (YAML::InvalidScalar) { 
+        } catch (YAML::InvalidScalar) {
           ROS_ERROR("The map does not contain an image tag or it is invalid.");
-          exit(-1);
+          return false;
         }
       } else {
         private_nh.param("negate", negate, 0);
@@ -176,16 +189,13 @@ class MapServer
                map_resp_.map.info.resolution);
       meta_data_message_ = map_resp_.map.info;
 
-      service = n.advertiseService("static_map", &MapServer::mapCallback, this);
-      //pub = n.advertise<nav_msgs::MapMetaData>("map_metadata", 1,
-
-      // Latched publisher for metadata
-      metadata_pub= n.advertise<nav_msgs::MapMetaData>("map_metadata", 1, true);
+      // Publish new map metadata
       metadata_pub.publish( meta_data_message_ );
-      
-      // Latched publisher for data
-      map_pub = n.advertise<nav_msgs::OccupancyGrid>("map", 1, true);
+
+      // Publish new map
       map_pub.publish( map_resp_.map );
+
+      return true;
     }
 
   private:
@@ -193,6 +203,7 @@ class MapServer
     ros::Publisher map_pub;
     ros::Publisher metadata_pub;
     ros::ServiceServer service;
+    ros::ServiceServer load_map_srv_handle;
     bool deprecated;
 
     /** Callback invoked when someone requests our service */
@@ -206,6 +217,34 @@ class MapServer
       ROS_INFO("Sending map");
 
       return true;
+    }
+
+    bool loadMapService(move_base_msgs::LoadMap::Request  &req,
+             move_base_msgs::LoadMap::Response &res)
+    {
+      bool result;
+      try
+      {
+        result = loadMap(req.name, 0.0);
+      }
+      catch(std::runtime_error& e)
+      {
+        ROS_ERROR("map_server exception: %s", e.what());
+        res.response = -1;
+        res.message = "map_server exception: "+ std::string(e.what());
+        return false;
+      }
+
+      if (result)
+      {
+        res.response = 0;
+        res.message = "map " + req.name + " loaded successfully.";
+        return true;
+      }
+
+      res.response = -1;
+      res.message = "Error loading map " + req.name;
+      return false;
     }
 
     /** The map data is cached here, to be sent out to service callers
@@ -222,55 +261,38 @@ class MapServer
 
 };
 
-bool load_map(move_base_msgs::LoadMap::Request  &req,
-         move_base_msgs::LoadMap::Response &res)
-{
-  try
-  {
-    MapServer ms(req.name, 0.0);
-  }
-  catch(std::runtime_error& e)
-  {
-    ROS_ERROR("map_server exception: %s", e.what());
-    res.response = -1;
-    res.message = "map_server exception: "+ std::string(e.what());
-    return false;
-  }
-
-  res.response = 0;
-  res.message = "map " + req.name + " loaded successfully.";
-  return true;
-}
-
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "map_server", ros::init_options::AnonymousName);
-  if(argc != 3 && argc != 2 && argc != 1)
+  if(argc > 3)
   {
     ROS_ERROR("%s", USAGE);
-    exit(-1);
+    return false;
   }
   if (argc != 2 && argc != 1) {
     ROS_WARN("Using deprecated map server interface. Please switch to new interface.");
   }
 
-  ros::NodeHandle n;
-  ros::ServiceServer service = n.advertiseService("map_server/load_map", load_map);
+  MapServer ms;
 
-  std::string fname(argv[1]);
-  double res = (argc == 2) ? 0.0 : atof(argv[2]);
-
-  try
+  if (argc > 1)
   {
-    MapServer ms(fname, res);
-    ros::spin();
-  }
-  catch(std::runtime_error& e)
-  {
-    ROS_ERROR("map_server exception: %s", e.what());
-    return -1;
+    std::string fname(argv[1]);
+    double res = (argc == 2) ? 0.0 : atof(argv[2]);
+    try
+    {
+      bool result = ms.loadMap(fname, res);
+      if (!result)
+        exit(-1);
+    }
+    catch(std::runtime_error& e)
+    {
+      ROS_ERROR("map_server exception: %s", e.what());
+      return -1;
+    }
   }
 
+  ros::spin();
 
   return 0;
 }

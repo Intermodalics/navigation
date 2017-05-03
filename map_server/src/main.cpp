@@ -220,7 +220,7 @@ class MapServer
     }
 
     bool loadMapService(move_base_msgs::LoadMap::Request  &req,
-             move_base_msgs::LoadMap::Response &res)
+                        move_base_msgs::LoadMap::Response &res)
     {
       bool result;
       try
@@ -264,21 +264,24 @@ class MapServer
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "map_server", ros::init_options::AnonymousName);
-  if(argc > 3)
-  {
-    ROS_ERROR("%s", USAGE);
-    return false;
-  }
-  if (argc != 2 && argc != 1) {
-    ROS_WARN("Using deprecated map server interface. Please switch to new interface.");
-  }
-
   MapServer ms;
+  double res = 0.0;
 
-  if (argc > 1)
+  switch(argc)
   {
+  case 1:
+    // Service based usage: the server is created without loading the map.
+    // The map can be loaded later using the service map_server/load_map.
+    break;
+  case 3:
+    // Deprecated usage: the map is loaded when the server is created using
+    // resolution specification.
+    ROS_WARN("Using deprecated map server interface. Please switch to new interface.");
+    res = atof(argv[2]);
+  case 2:
+  {
+    // Standard usage: the map is loaded when the server is created.
     std::string fname(argv[1]);
-    double res = (argc == 2) ? 0.0 : atof(argv[2]);
     try
     {
       bool result = ms.loadMap(fname, res);
@@ -291,9 +294,13 @@ int main(int argc, char **argv)
       return -1;
     }
   }
+    break;
+  default:
+    ROS_ERROR("%s", USAGE);
+    return false;
+  }
 
   ros::spin();
-
   return 0;
 }
 

@@ -16,6 +16,11 @@ add_action_files(
         SaveMap.action
 )
 
+add_service_files(
+  FILES
+  LoadMap.srv
+)
+
 generate_messages(
     DEPENDENCIES
         actionlib_msgs

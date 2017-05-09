@@ -103,12 +103,19 @@ namespace base_local_planner {
     try {
       // get plan_to_global_transform from plan frame to global_frame
       tf::StampedTransform plan_to_global_transform;
-      tf.waitForTransform(global_frame, ros::Time::now(),
-                          plan_pose.header.frame_id, plan_pose.header.stamp,
-                          plan_pose.header.frame_id, ros::Duration(0.5));
-      tf.lookupTransform(global_frame, ros::Time(),
-                         plan_pose.header.frame_id, plan_pose.header.stamp, 
+      // TODO(@MagnaboscoL) check if this is the right solution in this case.
+      ros::Time timestamp = ros::Time::now();
+      if (!tf.waitForTransform(global_frame, timestamp,
+                               plan_pose.header.frame_id,
+                               plan_pose.header.stamp,
+                               plan_pose.header.frame_id,
+                               ros::Duration(0.5)))
+                               return false;
+
+      tf.lookupTransform(global_frame, timestamp,
+                         plan_pose.header.frame_id, plan_pose.header.stamp,
                          plan_pose.header.frame_id, plan_to_global_transform);
+
 
       //let's get the pose of the robot in the frame of the plan
       tf::Stamped<tf::Pose> robot_pose;
@@ -185,11 +192,24 @@ namespace base_local_planner {
     const geometry_msgs::PoseStamped& plan_goal_pose = global_plan.back();
     try{
       tf::StampedTransform transform;
-      tf.waitForTransform(global_frame, ros::Time::now(),
-                          plan_goal_pose.header.frame_id, plan_goal_pose.header.stamp,
-                          plan_goal_pose.header.frame_id, ros::Duration(0.5));
-      tf.lookupTransform(global_frame, ros::Time(),
-                         plan_goal_pose.header.frame_id, plan_goal_pose.header.stamp,
+      // TODO(@MagnaboscoL)
+      // This solution causes the robot to miss the Control loop desired rate
+      // leading to a jerky movement.
+      //   ros::Time timestamp = ros::Time::now();
+      //   if (!tf.waitForTransform(global_frame, timestamp,
+      //                            plan_goal_pose.header.frame_id,
+      //                            plan_goal_pose.header.stamp,
+      //                            plan_goal_pose.header.frame_id,
+      //                            ros::Duration(0.5)))
+      //                            return false;
+      //
+      //   tf.lookupTransform(global_frame, timestamp,
+      //                      plan_goal_pose.header.frame_id, plan_goal_pose.header.stamp,
+      //                      plan_goal_pose.header.frame_id, transform);
+      // The following soultion works but there is no check on the timestamps,
+      // check if it is the right thing to do.
+      tf.lookupTransform(global_frame, ros::Time(0),
+                         plan_goal_pose.header.frame_id, ros::Time(0),
                          plan_goal_pose.header.frame_id, transform);
 
       poseStampedMsgToTF(plan_goal_pose, goal_pose);
@@ -246,9 +266,9 @@ namespace base_local_planner {
     return false;
   }
 
-  bool stopped(const nav_msgs::Odometry& base_odom, 
+  bool stopped(const nav_msgs::Odometry& base_odom,
       const double& rot_stopped_velocity, const double& trans_stopped_velocity){
-    return fabs(base_odom.twist.twist.angular.z) <= rot_stopped_velocity 
+    return fabs(base_odom.twist.twist.angular.z) <= rot_stopped_velocity
       && fabs(base_odom.twist.twist.linear.x) <= trans_stopped_velocity
       && fabs(base_odom.twist.twist.linear.y) <= trans_stopped_velocity;
   }

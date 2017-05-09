@@ -12,7 +12,7 @@ find_package(catkin REQUIRED
         pluginlib
         )
 
-
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/config)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 remove_definitions(-DDISABLE_LIBUSB-1.0)
@@ -55,5 +55,3 @@ install(TARGETS move_slow_and_clear
 install(FILES recovery_plugin.xml
     DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
-
-

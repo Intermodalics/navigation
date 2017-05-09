@@ -16,6 +16,7 @@ find_package(catkin REQUIRED
         visualization_msgs
         )
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/config)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 remove_definitions(-DDISABLE_LIBUSB-1.0)

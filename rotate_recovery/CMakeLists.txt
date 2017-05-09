@@ -12,6 +12,7 @@ find_package(catkin REQUIRED
             base_local_planner
         )
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/config)
 find_package(Eigen3 REQUIRED)
 include_directories(
     include
@@ -39,4 +40,3 @@ install(TARGETS rotate_recovery
 install(FILES rotate_plugin.xml
     DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
-

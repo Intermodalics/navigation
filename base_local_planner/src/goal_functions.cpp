@@ -100,84 +100,102 @@ namespace base_local_planner {
     }
 
     const geometry_msgs::PoseStamped& plan_pose = global_plan[0];
-    try {
-      // get plan_to_global_transform from plan frame to global_frame
-      tf::StampedTransform plan_to_global_transform;
-      // TODO(@MagnaboscoL) check if this is the right solution in this case.
-      ros::Time timestamp = ros::Time::now();
-      if (!tf.waitForTransform(global_frame, timestamp,
-                               plan_pose.header.frame_id,
-                               plan_pose.header.stamp,
-                               plan_pose.header.frame_id,
-                               ros::Duration(0.5)))
-                               return false;
 
-      tf.lookupTransform(global_frame, timestamp,
-                         plan_pose.header.frame_id, plan_pose.header.stamp,
-                         plan_pose.header.frame_id, plan_to_global_transform);
+    ros::Time timestamp = ros::Time::now();
+    int attempts = 0;
+    bool succeded = false;
+    while (++attempts < 1000) {
+      try {
+        // get plan_to_global_transform from plan frame to global_frame
+        tf::StampedTransform plan_to_global_transform;
+        // TODO(@MagnaboscoL) check if this is the right solution in this case.
+
+        // if (!tf.waitForTransform(global_frame, timestamp,
+        //                          plan_pose.header.frame_id,
+        //                          ros::Time(0),
+        //                          plan_pose.header.frame_id,
+        //                          ros::Duration(0.5)))
+        //                          return false;
+        //
+        // tf.lookupTransform(global_frame, timestamp,
+        //                    plan_pose.header.frame_id, ros::Time(0),
+        //                    plan_pose.header.frame_id, plan_to_global_transform);
+
+       tf.lookupTransform(global_frame, ros::Time(0),
+                          plan_pose.header.frame_id, ros::Time(0),
+                          plan_pose.header.frame_id, plan_to_global_transform);
 
 
-      //let's get the pose of the robot in the frame of the plan
-      tf::Stamped<tf::Pose> robot_pose;
-      tf.transformPose(plan_pose.header.frame_id, global_pose, robot_pose);
+        //let's get the pose of the robot in the frame of the plan
+        tf::Stamped<tf::Pose> robot_pose;
+        tf.transformPose(plan_pose.header.frame_id, global_pose, robot_pose);
 
-      //we'll discard points on the plan that are outside the local costmap
-      double dist_threshold = std::max(costmap.getSizeInCellsX() * costmap.getResolution() / 2.0,
-                                       costmap.getSizeInCellsY() * costmap.getResolution() / 2.0);
+        //we'll discard points on the plan that are outside the local costmap
+        double dist_threshold = std::max(costmap.getSizeInCellsX() * costmap.getResolution() / 2.0,
+                                         costmap.getSizeInCellsY() * costmap.getResolution() / 2.0);
 
-      unsigned int i = 0;
-      double sq_dist_threshold = dist_threshold * dist_threshold;
-      double sq_dist = 0;
+        unsigned int i = 0;
+        double sq_dist_threshold = dist_threshold * dist_threshold;
+        double sq_dist = 0;
 
-      //we need to loop to a point on the plan that is within a certain distance of the robot
-      while(i < (unsigned int)global_plan.size()) {
-        double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
-        double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
-        sq_dist = x_diff * x_diff + y_diff * y_diff;
-        if (sq_dist <= sq_dist_threshold) {
-          break;
+        //we need to loop to a point on the plan that is within a certain distance of the robot
+        while(i < (unsigned int)global_plan.size()) {
+          double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
+          double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
+          sq_dist = x_diff * x_diff + y_diff * y_diff;
+          if (sq_dist <= sq_dist_threshold) {
+            break;
+          }
+          ++i;
         }
-        ++i;
+
+        tf::Stamped<tf::Pose> tf_pose;
+        geometry_msgs::PoseStamped newer_pose;
+
+        //now we'll transform until points are outside of our distance threshold
+        while(i < (unsigned int)global_plan.size() && sq_dist <= sq_dist_threshold) {
+          const geometry_msgs::PoseStamped& pose = global_plan[i];
+          poseStampedMsgToTF(pose, tf_pose);
+          tf_pose.setData(plan_to_global_transform * tf_pose);
+          tf_pose.stamp_ = plan_to_global_transform.stamp_;
+          tf_pose.frame_id_ = global_frame;
+          poseStampedTFToMsg(tf_pose, newer_pose);
+
+          transformed_plan.push_back(newer_pose);
+
+          double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
+          double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
+          sq_dist = x_diff * x_diff + y_diff * y_diff;
+
+          ++i;
+        }
       }
-
-      tf::Stamped<tf::Pose> tf_pose;
-      geometry_msgs::PoseStamped newer_pose;
-
-      //now we'll transform until points are outside of our distance threshold
-      while(i < (unsigned int)global_plan.size() && sq_dist <= sq_dist_threshold) {
-        const geometry_msgs::PoseStamped& pose = global_plan[i];
-        poseStampedMsgToTF(pose, tf_pose);
-        tf_pose.setData(plan_to_global_transform * tf_pose);
-        tf_pose.stamp_ = plan_to_global_transform.stamp_;
-        tf_pose.frame_id_ = global_frame;
-        poseStampedTFToMsg(tf_pose, newer_pose);
-
-        transformed_plan.push_back(newer_pose);
-
-        double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
-        double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
-        sq_dist = x_diff * x_diff + y_diff * y_diff;
-
-        ++i;
+      catch(tf::LookupException& ex) {
+        ROS_WARN("No Transform available Error: %s Attempt: %d\n", ex.what(), attempts);
+        ros::Duration(0.1).sleep();
+        continue;
+        //return false;
       }
+      catch(tf::ConnectivityException& ex) {
+        ROS_WARN("Connectivity Error: %s Attempt: %d\n", ex.what(), attempts);
+        ros::Duration(0.1).sleep();
+        continue;
+        //return false;
+      }
+      catch(tf::ExtrapolationException& ex) {
+        ROS_WARN("Extrapolation Error: %s Attempt: %d\n", ex.what(), attempts);
+        if (!global_plan.empty())
+          ROS_WARN("Global Frame: %s Plan Frame size %d: %s\n", global_frame.c_str(), (unsigned int)global_plan.size(), global_plan[0].header.frame_id.c_str());
+        ros::Duration(0.1).sleep();
+        continue;
+        //return false;
+      }
+      succeded = true;
+      break;
     }
-    catch(tf::LookupException& ex) {
-      ROS_ERROR("No Transform available Error: %s\n", ex.what());
-      return false;
-    }
-    catch(tf::ConnectivityException& ex) {
-      ROS_ERROR("Connectivity Error: %s\n", ex.what());
-      return false;
-    }
-    catch(tf::ExtrapolationException& ex) {
-      ROS_ERROR("Extrapolation Error: %s\n", ex.what());
-      if (!global_plan.empty())
-        ROS_ERROR("Global Frame: %s Plan Frame size %d: %s\n", global_frame.c_str(), (unsigned int)global_plan.size(), global_plan[0].header.frame_id.c_str());
-
-      return false;
-    }
-
-    return true;
+    if (succeded)
+      return true;
+    return false;
   }
 
   bool getGoalPose(const tf::TransformListener& tf,
@@ -195,17 +213,17 @@ namespace base_local_planner {
       // TODO(@MagnaboscoL)
       // This solution causes the robot to miss the Control loop desired rate
       // leading to a jerky movement.
-      //   ros::Time timestamp = ros::Time::now();
-      //   if (!tf.waitForTransform(global_frame, timestamp,
-      //                            plan_goal_pose.header.frame_id,
-      //                            plan_goal_pose.header.stamp,
-      //                            plan_goal_pose.header.frame_id,
-      //                            ros::Duration(0.5)))
-      //                            return false;
-      //
-      //   tf.lookupTransform(global_frame, timestamp,
-      //                      plan_goal_pose.header.frame_id, plan_goal_pose.header.stamp,
-      //                      plan_goal_pose.header.frame_id, transform);
+        // ros::Time timestamp = ros::Time::now();
+        // if (!tf.waitForTransform(global_frame, timestamp,
+        //                          plan_goal_pose.header.frame_id,
+        //                          plan_goal_pose.header.stamp,
+        //                          plan_goal_pose.header.frame_id,
+        //                          ros::Duration(0.5)))
+        //                          return false;
+        //
+        // tf.lookupTransform(global_frame, timestamp,
+        //                    plan_goal_pose.header.frame_id, plan_goal_pose.header.stamp,
+        //                    plan_goal_pose.header.frame_id, transform);
       // The following soultion works but there is no check on the timestamps,
       // check if it is the right thing to do.
       tf.lookupTransform(global_frame, ros::Time(0),
@@ -227,7 +245,7 @@ namespace base_local_planner {
       return false;
     }
     catch(tf::ExtrapolationException& ex) {
-      ROS_ERROR("Extrapolation Error: %s\n", ex.what());
+      ROS_ERROR("###### Extrapolation Error: %s\n", ex.what());
       if (global_plan.size() > 0)
         ROS_ERROR("Global Frame: %s Plan Frame size %d: %s\n", global_frame.c_str(), (unsigned int)global_plan.size(), global_plan[0].header.frame_id.c_str());
 

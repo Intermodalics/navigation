@@ -79,20 +79,61 @@ class OMGPlannerROS : public nav_core::BaseLocalPlanner {
    */
   void publishGlobalPlan(std::vector<geometry_msgs::PoseStamped>& path);
 
-  bool initialized_;
+  bool initialized_;  ///< @brief Holds the planner initialization status.
+
+  /**
+   * @brief odom_helper_ Class used to provide odometry information.
+   */
   base_local_planner::OdometryHelperRos odom_helper_;
-  tf::TransformListener* tf_;  ///< @brief Used for transforming point clouds
-  costmap_2d::Costmap2DROS* costmap_ros_;
-  tf::Stamped<tf::Pose> current_pose_;
-  ros::Publisher g_plan_pub_, l_plan_pub_;
-  ros::ServiceClient goal_reached_client_, set_plan_client_, initialize_client_,
-      compute_velocity_client_;
-  std::string goal_reached_srv_ = "goal_reached";
-  std::string set_plan_srv_ = "set_plan";
-  std::string initialize_srv_ = "initialize";
-  std::string compute_velocity_srv_ = "compute_velocity";
+
+  tf::TransformListener* tf_;  ///< @brief Used for transforming point clouds.
+
+  costmap_2d::Costmap2DROS* costmap_ros_;  ///< @brief The global costmap.
+  tf::Stamped<tf::Pose>
+      current_pose_;  ///< @brief The current pose of the robot.
+  ros::Publisher g_plan_pub_; ///< @brief Global plan publisher.
+  ros::Publisher l_plan_pub_; ///< @brief Local plan publisher.
 
 
+  /**
+   * @brief goal_reached_client_ Client for calling the goal_reached service.
+   */
+  ros::ServiceClient goal_reached_client_;
+
+  /**
+   * @brief goal_reached_client_ Client for calling the set_plan service.
+   */
+  ros::ServiceClient set_plan_client_;
+
+  /**
+   * @brief goal_reached_client_ Client for calling the initialize service.
+   */
+  ros::ServiceClient initialize_client_;
+
+  /**
+   * @brief goal_reached_client_ Client for calling the compute_velocity service.
+   */
+  ros::ServiceClient compute_velocity_client_;
+
+  /**
+   * @brief goal_reached_srv_ Service name.
+   */
+  const std::string goal_reached_srv_ = "goal_reached";
+
+  /**
+   * @brief goal_reached_srv_ Service name.
+   */
+  const std::string set_plan_srv_ = "set_plan";
+
+  /**
+   * @brief goal_reached_srv_ Service name.
+   */
+  const std::string initialize_srv_ = "initialize";
+
+  /**
+   * @brief goal_reached_srv_ Service name.
+   */
+  const std::string compute_velocity_srv_ = "compute_velocity";
 };
 }
 

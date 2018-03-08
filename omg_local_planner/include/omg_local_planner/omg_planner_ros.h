@@ -118,22 +118,22 @@ class OMGPlannerROS : public nav_core::BaseLocalPlanner {
   /**
    * @brief goal_reached_srv_ Service name.
    */
-  const std::string goal_reached_srv_ = "goal_reached";
+  const std::string kGoalReachedSrv_ = "goal_reached";
 
   /**
    * @brief goal_reached_srv_ Service name.
    */
-  const std::string set_plan_srv_ = "set_plan";
+  const std::string kSetPlanSrv_ = "set_plan";
 
   /**
    * @brief goal_reached_srv_ Service name.
    */
-  const std::string initialize_srv_ = "initialize";
+  const std::string kInitializeSrv_ = "initialize";
 
   /**
    * @brief goal_reached_srv_ Service name.
    */
-  const std::string compute_velocity_srv_ = "compute_velocity";
+  const std::string kComputeVelocitySrv_ = "compute_velocity";
 };
 }
 

@@ -24,10 +24,10 @@ void OMGPlannerROS::initialize(std::__cxx11::string name,
 
     // Initialise the service clients.
     ros::NodeHandle public_nh;
-    ros::service::waitForService(goal_reached_srv_, -1);
+    ros::service::waitForService(kGoalReachedSrv_, -1);
     goal_reached_client_ =
         public_nh.serviceClient<omg_ros_nav_bridge::GoalReached>(
-            goal_reached_srv_, true);
+            kGoalReachedSrv_, true);
     // TODO: Add the other services and call initialise
     initialized_ = true;
   }

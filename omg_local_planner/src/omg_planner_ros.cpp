@@ -2,7 +2,10 @@
 
 #include <omg_local_planner/omg_planner_ros.h>
 
+#include <omg_ros_nav_bridge/ComputeVelCmd.h>
+#include <omg_ros_nav_bridge/ConfigPlanner.h>
 #include <omg_ros_nav_bridge/GoalReached.h>
+#include <omg_ros_nav_bridge/InitPlanner.h>
 
 // register this planner as a BaseLocalPlanner plugin
 PLUGINLIB_EXPORT_CLASS(omg_local_planner::OMGPlannerROS,

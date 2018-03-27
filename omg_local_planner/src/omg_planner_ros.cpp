@@ -31,7 +31,24 @@ void OMGPlannerROS::initialize(std::__cxx11::string name,
     goal_reached_client_ =
         public_nh.serviceClient<omg_ros_nav_bridge::GoalReached>(
             kGoalReachedSrv_, true);
-    // TODO: Add the other services and call initialise
+    set_plan_client_ =
+        public_nh.serviceClient<omg_ros_nav_bridge::ConfigPlanner>(kSetPlanSrv_,
+                                                                   true);
+    initialize_client_ =
+        public_nh.serviceClient<omg_ros_nav_bridge::InitPlanner>(
+            kInitializeSrv_, true);
+    compute_velocity_client_ =
+        public_nh.serviceClient<omg_ros_nav_bridge::ComputeVelCmd>(
+            kComputeVelocitySrv_, true);
+
+    omg_ros_nav_bridge::InitPlanner srv;
+    srv.request.width = 10.0;
+    srv.request.height = 5.0;
+    omg_ros_nav_bridge::static_obst obs;
+    obs.single_obstacle = {-2.0, -2.3, 1.5, 4.0, 0.1};
+    srv.request.obstacles.push_back(obs);
+    initialize_client_.call(srv);
+
     initialized_ = true;
   }
 }
@@ -45,10 +62,29 @@ bool OMGPlannerROS::computeVelocityCommands(geometry_msgs::Twist &cmd_vel) {
   }
 
   if (compute_velocity_client_) {
-    // TODO: Add call to service
+    omg_ros_nav_bridge::ComputeVelCmd srv;
+    srv.request.position.x = current_pose_.getOrigin().getX();
+    srv.request.position.y = current_pose_.getOrigin().getY();
+    srv.request.position.theta = tf::getYaw(current_pose_.getRotation());
+
+    tf::Stamped<tf::Pose> robot_vel;
+    odom_helper_.getRobotVel(robot_vel);
+    srv.request.vel_in.linear.x = robot_vel.getOrigin().getX();
+    srv.request.vel_in.linear.y = robot_vel.getOrigin().getY();
+    srv.request.vel_in.angular.z = tf::getYaw(robot_vel.getRotation());
+
+    compute_velocity_client_.call(srv);
+
+    if (!srv.response.computed) {
+      ROS_ERROR("Could not calculate the velocity");
+      return false;
+    }
+    cmd_vel = srv.response.cmd_vel;
   } else {
     ROS_ERROR_STREAM("compute_velocity_client_ is not connected.");
+    return false;
   }
+  return true;
 }
 
 bool OMGPlannerROS::setPlan(
@@ -62,10 +98,25 @@ bool OMGPlannerROS::setPlan(
 
   ROS_INFO("Got new plan");
   if (set_plan_client_) {
-    // TODO: Add call to service
+    omg_ros_nav_bridge::ConfigPlanner srv;
+    srv.request.waypoint_lst.reserve(orig_global_plan.size());
+    for (geometry_msgs::PoseStamped p : orig_global_plan) {
+      geometry_msgs::Pose2D pose;
+      pose.x = p.pose.position.x;
+      pose.y = p.pose.position.y;
+      pose.theta = tf::getYaw(p.pose.orientation);
+      srv.request.waypoint_lst.push_back(pose);
+    }
+    set_plan_client_.call(srv);
+    if (!srv.response.planned) {
+      ROS_ERROR("Could not generate OMG plan!");
+      return false;
+    }
   } else {
     ROS_ERROR_STREAM("set_plan_client_ is not connected.");
+    return false;
   }
+  return true;
 }
 
 bool OMGPlannerROS::isGoalReached() {

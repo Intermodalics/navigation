@@ -14,7 +14,7 @@ PLUGINLIB_EXPORT_CLASS(omg_local_planner::OMGPlannerROS,
 namespace omg_local_planner {
 OMGPlannerROS::OMGPlannerROS() : initialized_(false), odom_helper_("odom") {}
 
-void OMGPlannerROS::initialize(std::__cxx11::string name,
+void OMGPlannerROS::initialize(std::string name,
                                tf::TransformListener *tf,
                                costmap_2d::Costmap2DROS *costmap_ros) {
   if (!initialized_) {

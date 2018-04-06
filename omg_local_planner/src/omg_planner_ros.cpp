@@ -42,12 +42,56 @@ void OMGPlannerROS::initialize(std::string name,
             kComputeVelocitySrv_, true);
 
     omg_ros_nav_bridge::InitPlanner srv;
-    srv.request.width = 10.0;
-    srv.request.height = 5.0;
-    omg_ros_nav_bridge::static_obst obs;
-    obs.single_obstacle = {-2.0, -2.3, 1.5, 4.0, 0.1};
-    srv.request.obstacles.push_back(obs);
-    initialize_client_.call(srv);
+    {
+      // TODO: This assumes that the costmap is static.
+      // In the ros publisher they check if it has moved.
+      // Should check that this is not the case.
+      char* cost_translation_table_ = new char[256];
+
+      // special values:
+      cost_translation_table_[0] = 0;  // NO obstacle
+      cost_translation_table_[253] = 99;  // INSCRIBED obstacle
+      cost_translation_table_[254] = 100;  // LETHAL obstacle
+      cost_translation_table_[255] = -1;  // UNKNOWN
+
+      // regular cost values scale the range 1 to 252 (inclusive) to fit
+      // into 1 to 98 (inclusive).
+      for (int i = 1; i < 253; i++) {
+        cost_translation_table_[ i ] = char(1 + (97 * (i - 1)) / 251);
+      }
+
+      boost::unique_lock<costmap_2d::Costmap2D::mutex_t>
+        lock(*(costmap_ros_->getCostmap()->getMutex()));
+      double resolution = costmap_ros_->getCostmap()->getResolution();
+
+      srv.request.global_costmap.header.frame_id =
+        costmap_ros_->getGlobalFrameID();
+      srv.request.global_costmap.header.stamp = ros::Time::now();
+      srv.request.global_costmap.info.resolution = resolution;
+
+      srv.request.global_costmap.info.width =
+        costmap_ros_->getCostmap()->getSizeInCellsX();
+      srv.request.global_costmap.info.height =
+        costmap_ros_->getCostmap()->getSizeInCellsY();
+
+      double wx, wy;
+      costmap_ros_->getCostmap()->mapToWorld(0, 0, wx, wy);
+      srv.request.global_costmap.info.origin.position.x = wx - resolution / 2;
+      srv.request.global_costmap.info.origin.position.y = wy - resolution / 2;
+      srv.request.global_costmap.info.origin.position.z = 0.0;
+      srv.request.global_costmap.info.origin.orientation.w = 1.0;
+
+      srv.request.global_costmap.data.resize(
+        srv.request.global_costmap.info.width *
+        srv.request.global_costmap.info.height);
+
+      unsigned char* data = costmap_ros_->getCostmap()->getCharMap();
+      for (unsigned int i = 0; i < srv.request.global_costmap.data.size(); i++) {
+        srv.request.global_costmap.data[i] = cost_translation_table_[ data[ i ]];
+      }
+      initialize_client_.call(srv);
+      delete cost_translation_table_;
+    }
 
     initialized_ = true;
   }

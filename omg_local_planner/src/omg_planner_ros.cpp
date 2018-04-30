@@ -123,6 +123,14 @@ bool OMGPlannerROS::computeVelocityCommands(geometry_msgs::Twist &cmd_vel) {
       ROS_ERROR("Could not calculate the velocity");
       return false;
     }
+    local_plan_.clear();
+    local_plan_.resize(srv.response.x_traj.size());
+    for (size_t i = 0; i < srv.response.x_traj.size(); ++i) {
+      geometry_msgs::PoseStamped p;
+      p.pose.position.x = srv.response.x_traj[i];
+      p.pose.position.y = srv.response.y_traj[i];
+      local_plan_.push_back(std::move(p));
+    }
     cmd_vel = srv.response.cmd_vel;
   } else {
     ROS_ERROR_STREAM("compute_velocity_client_ is not connected.");
@@ -160,6 +168,7 @@ bool OMGPlannerROS::setPlan(
     ROS_ERROR_STREAM("set_plan_client_ is not connected.");
     return false;
   }
+  publishGlobalPlan(orig_global_plan);
   return true;
 }
 
@@ -192,12 +201,11 @@ bool OMGPlannerROS::isGoalReached() {
 bool OMGPlannerROS::isInitialized() { return initialized_; }
 
 void OMGPlannerROS::publishLocalPlan(
-    std::vector<geometry_msgs::PoseStamped> &path) {
+    const std::vector<geometry_msgs::PoseStamped> &path) {
   base_local_planner::publishPlan(path, l_plan_pub_);
 }
 
-void OMGPlannerROS::publishGlobalPlan(
-    std::vector<geometry_msgs::PoseStamped> &path) {
+void OMGPlannerROS::publishGlobalPlan(const std::vector<geometry_msgs::PoseStamped> &path) {
   base_local_planner::publishPlan(path, g_plan_pub_);
 }
 }

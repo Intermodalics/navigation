@@ -71,13 +71,13 @@ class OMGPlannerROS : public nav_core::BaseLocalPlanner {
    * @brief Publish the local plan to be followed.
    * @param path A set of poses composing the plan.
    */
-  void publishLocalPlan(std::vector<geometry_msgs::PoseStamped>& path);
+  void publishLocalPlan(const std::vector<geometry_msgs::PoseStamped> &path);
 
   /**
    * @brief Publish the global plan to be followed.
    * @param path A set of poses composing the plan.
    */
-  void publishGlobalPlan(std::vector<geometry_msgs::PoseStamped>& path);
+  void publishGlobalPlan(const std::vector<geometry_msgs::PoseStamped>& path);
 
   bool initialized_;  ///< @brief Holds the planner initialization status.
 
@@ -134,6 +134,11 @@ class OMGPlannerROS : public nav_core::BaseLocalPlanner {
    * @brief goal_reached_srv_ Service name.
    */
   const std::string kComputeVelocitySrv_ = "compute_vel_cmd";
+
+  /**
+   * @brief local_plan_ Store local plan for visualisation.
+   */
+  std::vector<geometry_msgs::PoseStamped> local_plan_;
 };
 }
 

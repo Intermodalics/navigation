@@ -127,7 +127,8 @@ bool OMGPlannerROS::computeVelocityCommands(geometry_msgs::Twist &cmd_vel) {
     local_plan_.resize(srv.response.x_traj.size());
     for (size_t i = 0; i < srv.response.x_traj.size(); ++i) {
       geometry_msgs::PoseStamped p;
-      p.header.frame_id = "/map";
+      p.header.stamp = ros::Time::now();
+      p.header.frame_id = "odom";
       p.pose.position.x = srv.response.x_traj[i];
       p.pose.position.y = srv.response.y_traj[i];
       local_plan_.push_back(std::move(p));

@@ -127,10 +127,12 @@ bool OMGPlannerROS::computeVelocityCommands(geometry_msgs::Twist &cmd_vel) {
     local_plan_.resize(srv.response.x_traj.size());
     for (size_t i = 0; i < srv.response.x_traj.size(); ++i) {
       geometry_msgs::PoseStamped p;
+      p.header.frame_id = "/map";
       p.pose.position.x = srv.response.x_traj[i];
       p.pose.position.y = srv.response.y_traj[i];
       local_plan_.push_back(std::move(p));
     }
+    publishLocalPlan(local_plan_);
     cmd_vel = srv.response.cmd_vel;
   } else {
     ROS_ERROR_STREAM("compute_velocity_client_ is not connected.");

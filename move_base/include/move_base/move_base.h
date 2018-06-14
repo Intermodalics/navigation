@@ -44,6 +44,7 @@
 
 #include <actionlib/server/simple_action_server.h>
 #include <move_base_msgs/MoveBaseAction.h>
+#include <move_base_msgs/MoveBasePathAction.h>
 
 #include <nav_core/base_local_planner.h>
 #include <nav_core/base_global_planner.h>
@@ -62,6 +63,7 @@
 namespace move_base {
   //typedefs to help us out with the action server so that we don't hace to type so much
   typedef actionlib::SimpleActionServer<move_base_msgs::MoveBaseAction> MoveBaseActionServer;
+  typedef actionlib::SimpleActionServer<move_base_msgs::MoveBasePathAction> MoveBasePathActionServer;
 
   enum MoveBaseState {
     PLANNING,
@@ -157,16 +159,21 @@ namespace move_base {
       void resetState();
 
       void goalCB(const geometry_msgs::PoseStamped::ConstPtr& goal);
+      void pathCB(const nav_msgs::Path::ConstPtr& global_plan);
 
       void planThread();
 
-      void executeCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal);
+      void executeGoalCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal);
+      void executePathCb(const move_base_msgs::MoveBasePathGoalConstPtr& move_base_goal);
+      void executeCb(geometry_msgs::PoseStamped goal);
 
       bool isQuaternionValid(const geometry_msgs::Quaternion& q);
+      bool isPathValid(const nav_msgs::Path& path);
 
       double distance(const geometry_msgs::PoseStamped& p1, const geometry_msgs::PoseStamped& p2);
 
       geometry_msgs::PoseStamped goalToGlobalFrame(const geometry_msgs::PoseStamped& goal_pose_msg);
+      nav_msgs::Path pathToGlobalFrame(const nav_msgs::Path& path_msg);
 
       /**
        * @brief This is used to wake the planner at periodic intervals.
@@ -176,6 +183,7 @@ namespace move_base {
       tf::TransformListener& tf_;
 
       MoveBaseActionServer* as_;
+      MoveBasePathActionServer* as_path_;
 
       boost::shared_ptr<nav_core::BaseLocalPlanner> tc_;
       costmap_2d::Costmap2DROS* planner_costmap_ros_, *controller_costmap_ros_;
@@ -192,8 +200,8 @@ namespace move_base {
       int32_t max_planning_retries_;
       uint32_t planning_retries_;
       double conservative_reset_dist_, clearing_radius_;
-      ros::Publisher current_goal_pub_, vel_pub_, action_goal_pub_;
-      ros::Subscriber goal_sub_;
+      ros::Publisher current_goal_pub_, vel_pub_, action_goal_pub_, action_path_goal_pub_;
+      ros::Subscriber goal_sub_, path_sub_;
       ros::ServiceServer make_plan_srv_, clear_costmaps_srv_;
       bool shutdown_costmaps_, clearing_rotation_allowed_, recovery_behavior_enabled_;
       double oscillation_timeout_, oscillation_distance_;

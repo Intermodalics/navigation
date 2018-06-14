@@ -963,11 +963,21 @@ namespace move_base {
       ROS_DEBUG_NAMED("move_base","pointers swapped!");
 
       //publish active controller plan
-      nav_msgs::Path current_path;
-      current_path.header.stamp = ros::Time::now();
-      current_path.header.frame_id = global_frame_;
-      current_path.poses = *controller_plan_;
-      current_path_pub_.publish(current_path);
+      {
+        nav_msgs::Path current_path;
+        current_path.header.stamp = ros::Time::now();
+        current_path.header.frame_id = global_frame_;
+        current_path.poses.reserve(controller_plan_->size() + 1);
+
+        tf::Stamped<tf::Pose> global_pose;
+        controller_costmap_ros_->getRobotPose(global_pose);
+        current_path.poses.resize(1);
+        tf::poseStampedTFToMsg(global_pose, current_path.poses.front());
+
+        current_path.poses.insert(current_path.poses.end(), controller_plan_->begin(), controller_plan_->end());
+
+        current_path_pub_.publish(current_path);
+      }
 
       if(!tc_->setPlan(*controller_plan_)){
         //ABORT and SHUTDOWN COSTMAPS

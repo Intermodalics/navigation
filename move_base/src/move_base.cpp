@@ -88,7 +88,8 @@ namespace move_base {
 
     //for comanding the base
     vel_pub_ = nh.advertise<geometry_msgs::Twist>("cmd_vel", 1);
-    current_goal_pub_ = private_nh.advertise<geometry_msgs::PoseStamped>("current_goal", 0 );
+    current_goal_pub_ = private_nh.advertise<geometry_msgs::PoseStamped>("current_goal", 1, true );
+    current_path_pub_ = private_nh.advertise<nav_msgs::Path>("current_path", 1, true );
 
     ros::NodeHandle action_nh("move_base");
     action_goal_pub_ = action_nh.advertise<move_base_msgs::MoveBaseActionGoal>("goal", 1);
@@ -960,6 +961,13 @@ namespace move_base {
       latest_plan_ = temp_plan;
       lock.unlock();
       ROS_DEBUG_NAMED("move_base","pointers swapped!");
+
+      //publish active controller plan
+      nav_msgs::Path current_path;
+      current_path.header.stamp = ros::Time::now();
+      current_path.header.frame_id = global_frame_;
+      current_path.poses = *controller_plan_;
+      current_path_pub_.publish(current_path);
 
       if(!tc_->setPlan(*controller_plan_)){
         //ABORT and SHUTDOWN COSTMAPS

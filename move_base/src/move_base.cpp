@@ -1045,6 +1045,14 @@ namespace move_base {
           ROS_DEBUG_NAMED("move_base", "The local planner could not find a valid plan.");
           ros::Time attempt_end = last_valid_control_ + ros::Duration(controller_patience_);
 
+          //no recovery or replanning if the path is not not a global plan
+          if (as_path_->isActive()) {
+            ROS_ERROR("Aborting because a valid control could not be found.");
+            as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Failed to find a valid control.");
+            resetState();
+            return true;
+          }
+
           //check if we've tried to find a valid control for longer than our time limit
           if(ros::Time::now() > attempt_end){
             //we'll move into our obstacle clearing mode

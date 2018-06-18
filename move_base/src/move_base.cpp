@@ -98,6 +98,7 @@ namespace move_base {
     //like nav_view and rviz
     ros::NodeHandle simple_nh("move_base_simple");
     goal_sub_ = simple_nh.subscribe<geometry_msgs::PoseStamped>("goal", 1, boost::bind(&MoveBase::goalCB, this, _1));
+    goal_without_planning_sub_ = simple_nh.subscribe<geometry_msgs::PoseStamped>("goal_without_planning", 1, boost::bind(&MoveBase::goalWithoutPlanningCB, this, _1));
     path_sub_ = simple_nh.subscribe<nav_msgs::Path>("path", 1, boost::bind(&MoveBase::pathCB, this, _1));
 
     //we'll assume the radius of the robot to be consistent with what's specified for the costmaps
@@ -268,6 +269,16 @@ namespace move_base {
     move_base_msgs::MoveBaseActionGoal action_goal;
     action_goal.header.stamp = ros::Time::now();
     action_goal.goal.target_pose = *goal;
+
+    action_goal_pub_.publish(action_goal);
+  }
+
+  void MoveBase::goalWithoutPlanningCB(const geometry_msgs::PoseStamped::ConstPtr& goal){
+    ROS_DEBUG_NAMED("move_base","In ROS goal callback, wrapping the PoseStamped in the action message and re-sending to the server.");
+    move_base_msgs::MoveBaseActionGoal action_goal;
+    action_goal.header.stamp = ros::Time::now();
+    action_goal.goal.path.header = goal->header;
+    action_goal.goal.path.poses.push_back(*goal);
 
     action_goal_pub_.publish(action_goal);
   }

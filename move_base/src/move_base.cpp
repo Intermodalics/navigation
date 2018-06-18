@@ -47,7 +47,7 @@ namespace move_base {
 
   MoveBase::MoveBase(tf::TransformListener& tf) :
     tf_(tf),
-    as_(NULL), as_path_(NULL),
+    as_(NULL),
     planner_costmap_ros_(NULL), controller_costmap_ros_(NULL),
     bgp_loader_("nav_core", "nav_core::BaseGlobalPlanner"),
     blp_loader_("nav_core", "nav_core::BaseLocalPlanner"), 
@@ -55,8 +55,7 @@ namespace move_base {
     planner_plan_(NULL), latest_plan_(NULL), controller_plan_(NULL),
     runPlanner_(false), setup_(false), p_freq_change_(false), c_freq_change_(false), new_global_plan_(false) {
 
-    as_ = new MoveBaseActionServer(ros::NodeHandle(), "move_base", boost::bind(&MoveBase::executeGoalCb, this, _1), false);
-    as_path_ = new MoveBasePathActionServer(ros::NodeHandle(), "move_base/path", boost::bind(&MoveBase::executePathCb, this, _1), false);
+    as_ = new MoveBaseActionServer(ros::NodeHandle(), "move_base", boost::bind(&MoveBase::executeCb, this, _1), false);
 
     ros::NodeHandle private_nh("~");
     ros::NodeHandle nh;
@@ -93,7 +92,6 @@ namespace move_base {
 
     ros::NodeHandle action_nh("move_base");
     action_goal_pub_ = action_nh.advertise<move_base_msgs::MoveBaseActionGoal>("goal", 1);
-    action_path_goal_pub_ = action_nh.advertise<move_base_msgs::MoveBasePathActionGoal>("path/goal", 1);
 
     //we'll provide a mechanism for some people to send goals as PoseStamped messages over a topic
     //they won't get any useful information back about its status, but this is useful for tools
@@ -169,7 +167,6 @@ namespace move_base {
 
     //we're all set up now so we can start the action server
     as_->start();
-    as_path_->start();
 
     dsrv_ = new dynamic_reconfigure::Server<move_base::MoveBaseConfig>(ros::NodeHandle("~"));
     dynamic_reconfigure::Server<move_base::MoveBaseConfig>::CallbackType cb = boost::bind(&MoveBase::reconfigureCB, this, _1, _2);
@@ -277,11 +274,11 @@ namespace move_base {
 
   void MoveBase::pathCB(const nav_msgs::Path::ConstPtr& path){
     ROS_DEBUG_NAMED("move_base","In ROS path callback, wrapping the Path in the action message and re-sending to the server.");
-    move_base_msgs::MoveBasePathActionGoal action_goal;
+    move_base_msgs::MoveBaseActionGoal action_goal;
     action_goal.header.stamp = ros::Time::now();
     action_goal.goal.path = *path;
 
-    action_path_goal_pub_.publish(action_goal);
+    action_goal_pub_.publish(action_goal);
   }
 
   void MoveBase::clearCostmapWindows(double size_x, double size_y){
@@ -351,7 +348,7 @@ namespace move_base {
 
 
   bool MoveBase::planService(nav_msgs::GetPlan::Request &req, nav_msgs::GetPlan::Response &resp){
-    if(as_->isActive() || as_path_->isActive()){
+    if(as_->isActive()){
       ROS_ERROR("move_base must be in an inactive state to make a plan for an external user");
       return false;
     }
@@ -450,9 +447,6 @@ namespace move_base {
 
     if(as_ != NULL)
       delete as_;
-
-    if(as_path_ != NULL)
-      delete as_path_;
 
     if(planner_costmap_ros_ != NULL)
       delete planner_costmap_ros_;
@@ -699,65 +693,112 @@ namespace move_base {
     }
   }
 
-  void MoveBase::executeGoalCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal)
-  {
-    if (as_path_->isActive()) {
-      as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Aborting on path because another goal was received");
-      // TODO: wait until the other action server actually finished its callback
-    }
-
-    if(!isQuaternionValid(move_base_goal->target_pose.pose.orientation)){
-      as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
-      return;
-    }
-
-    geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
-
-    //we have a goal so start the planner
-    {
-      boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
-      planner_goal_ = goal;
-      runPlanner_ = true;
-      planner_cond_.notify_one();
-    }
-
-    executeCb(goal);
+  static inline bool operator!(const std_msgs::Header& msg) {
+    return (
+      msg.seq == 0 &&
+      msg.stamp == ros::Time() &&
+      msg.frame_id.empty());
   }
 
+  static inline bool operator!(const geometry_msgs::Point& msg) {
+    return (
+      msg.x == 0.0 &&
+      msg.y == 0.0 &&
+      msg.z == 0.0);
+  }
 
-  void MoveBase::executePathCb(const move_base_msgs::MoveBasePathGoalConstPtr& move_base_goal)
+  static inline bool operator!(const geometry_msgs::Quaternion& msg) {
+    return (
+      msg.x == 0.0 &&
+      msg.y == 0.0 &&
+      msg.z == 0.0 &&
+      msg.w == 0.0);
+  }
+
+  static inline bool operator!(const geometry_msgs::Pose& msg) {
+    return (!msg.position && !msg.orientation);
+  }
+
+  static inline bool operator!(const geometry_msgs::PoseStamped& msg) {
+    return (!msg.header && !msg.pose);
+  }
+
+  static inline bool operator!(const nav_msgs::Path& msg) {
+    return (!msg.header && msg.poses.empty());
+  }
+
+  bool MoveBase::acceptNewGoal(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal, geometry_msgs::PoseStamped* goal)
   {
-    if (as_->isActive()) {
-      as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because another path was received");
-      // TODO: wait until the other action server actually finished its callback
-    }
+    if(!!move_base_goal->target_pose){
+      if(!isQuaternionValid(move_base_goal->target_pose.pose.orientation)){
+        as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion in target_pose");
+        return false;
+      }
 
-    if(!isPathValid(move_base_goal->path)){
-      as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Aborting on path because it was invalid");
-      return;
-    }
+      *goal = goalToGlobalFrame(move_base_goal->target_pose);
 
-    nav_msgs::Path path = pathToGlobalFrame(move_base_goal->path);
+      //we'll make sure that we reset our state for the next execution cycle
+      recovery_index_ = 0;
+      state_ = PLANNING;
 
-    //we have a path so NOT start the planner
-    {
-      boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
-      runPlanner_ = false;
-      *latest_plan_ = path.poses;
-      last_valid_plan_ = ros::Time::now();
-      planning_retries_ = 0;
-      new_global_plan_ = true;
+      //we have a goal so start the planner
+      {
+        boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
+        planner_goal_ = *goal;
+        runPlanner_ = true;
+        planner_cond_.notify_one();
+      }
 
-      ROS_DEBUG_NAMED("move_base","Received a plan from an external callback");
+    }else if(!!move_base_goal->path){
+
+      if(!isPathValid(move_base_goal->path)){
+        as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because the path has invalid quaternions");
+        return false;
+      }
+
+      nav_msgs::Path path = pathToGlobalFrame(move_base_goal->path);
+      *goal = path.poses.back();
+
+      //we'll make sure that we reset our state for the next execution cycle
+      recovery_index_ = 0;
       state_ = CONTROLLING;
+
+      //we have a path so NOT start the planner
+      {
+        boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
+        runPlanner_ = false;
+        *latest_plan_ = path.poses;
+        last_valid_plan_ = ros::Time::now();
+        planning_retries_ = -1;   // do not replan
+        new_global_plan_ = true;
+
+        ROS_DEBUG_NAMED("move_base","Received a plan from an external callback");
+      }
+    }
+    else {
+      as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because neither target_pose nor path was set");
+      return false;
     }
 
-    executeCb(path.poses.back());
+    ROS_DEBUG_NAMED("move_base","move_base has received a goal of x: %.2f, y: %.2f", goal->pose.position.x, goal->pose.position.y);
+    current_goal_pub_.publish(*goal);
+
+    //make sure to reset our timeouts and counters
+    last_valid_control_ = ros::Time::now();
+    last_valid_plan_ = ros::Time::now();
+    last_oscillation_reset_ = ros::Time::now();
+
+    return true;
   }
 
-  void MoveBase::executeCb(geometry_msgs::PoseStamped goal)
+
+  void MoveBase::executeCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal)
   {
-    current_goal_pub_.publish(goal);
+    geometry_msgs::PoseStamped goal;
+
+    if(!acceptNewGoal(move_base_goal, &goal)){
+      return;
+    }
 
     std::vector<geometry_msgs::PoseStamped> global_plan;
     ros::Rate r(controller_frequency_);
@@ -766,12 +807,6 @@ namespace move_base {
       planner_costmap_ros_->start();
       controller_costmap_ros_->start();
     }
-
-    //we want to make sure that we reset the last time we had a valid plan and control
-    last_valid_control_ = ros::Time::now();
-    last_valid_plan_ = ros::Time::now();
-    last_oscillation_reset_ = ros::Time::now();
-    planning_retries_ = 0;
 
     ros::NodeHandle n;
     while(n.ok())
@@ -783,75 +818,14 @@ namespace move_base {
         c_freq_change_ = false;
       }
 
-      if(as_->isPreemptRequested() || as_path_->isPreemptRequested()){
+      if(as_->isPreemptRequested()){
         if(as_->isNewGoalAvailable()){
           //if we're active and a new goal is available, we'll accept it, but we won't shut anything down
-          move_base_msgs::MoveBaseGoal new_goal = *as_->acceptNewGoal();
+          move_base_msgs::MoveBaseGoalConstPtr new_goal = as_->acceptNewGoal();
 
-          if(!isQuaternionValid(new_goal.target_pose.pose.orientation)){
-            as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
+          if(!acceptNewGoal(move_base_goal, &goal)){
             return;
           }
-
-          goal = goalToGlobalFrame(new_goal.target_pose);
-
-          //we'll make sure that we reset our state for the next execution cycle
-          recovery_index_ = 0;
-          state_ = PLANNING;
-
-          {
-            boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
-            //we have a new goal so make sure the planner is awake
-            planner_goal_ = goal;
-            runPlanner_ = true;
-            planner_cond_.notify_one();
-          }
-
-          //publish the goal point to the visualizer
-          ROS_DEBUG_NAMED("move_base","move_base has received a goal of x: %.2f, y: %.2f", goal.pose.position.x, goal.pose.position.y);
-          current_goal_pub_.publish(goal);
-
-          //make sure to reset our timeouts and counters
-          last_valid_control_ = ros::Time::now();
-          last_valid_plan_ = ros::Time::now();
-          last_oscillation_reset_ = ros::Time::now();
-          planning_retries_ = 0;
-        }
-        else if(as_path_->isNewGoalAvailable()){
-          //if we're active and a new goal is available, we'll accept it, but we won't shut anything down
-          move_base_msgs::MoveBasePathGoal new_path = *as_path_->acceptNewGoal();
-
-          if(!isPathValid(new_path.path)){
-            as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Aborting on path because it was invalid");
-            return;
-          }
-
-          nav_msgs::Path path = pathToGlobalFrame(new_path.path);
-          goal = path.poses.back();
-
-          //we'll make sure that we reset our state for the next execution cycle
-          recovery_index_ = 0;
-
-          {
-            boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
-            runPlanner_ = false;
-            *latest_plan_ = path.poses;
-            last_valid_plan_ = ros::Time::now();
-            planning_retries_ = 0;
-            new_global_plan_ = true;
-
-            ROS_DEBUG_NAMED("move_base","Received a plan from an external callback");
-            state_ = CONTROLLING;
-          }
-
-          //publish the goal point to the visualizer
-          current_goal_pub_.publish(goal);
-
-          //make sure to reset our timeouts and counters
-          last_valid_control_ = ros::Time::now();
-          last_valid_plan_ = ros::Time::now();
-          last_oscillation_reset_ = ros::Time::now();
-          planning_retries_ = 0;
         }
         else {
           //if we've been preempted explicitly we need to shut things down
@@ -859,8 +833,7 @@ namespace move_base {
 
           //notify the ActionServer that we've successfully preempted
           ROS_DEBUG_NAMED("move_base","Move base preempting the current goal");
-          if (as_->isPreemptRequested()) as_->setPreempted();
-          if (as_path_->isPreemptRequested()) as_path_->setPreempted();
+          as_->setPreempted();
 
           //we'll actually return from execute after preempting
           return;
@@ -897,7 +870,6 @@ namespace move_base {
 
     //if the node is killed then we'll abort and return
     as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on the goal because the node has been killed");
-    as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Aborting on the path because the node has been killed");
     return;
   }
 
@@ -918,15 +890,9 @@ namespace move_base {
     tf::poseStampedTFToMsg(global_pose, current_position);
 
     //push the feedback out
-    if (as_->isActive()){
-      move_base_msgs::MoveBaseFeedback feedback;
-      feedback.base_position = current_position;
-      as_->publishFeedback(feedback);
-    } else if (as_path_->isActive()){
-      move_base_msgs::MoveBasePathFeedback feedback;
-      feedback.base_position = current_position;
-      as_path_->publishFeedback(feedback);
-    }
+    move_base_msgs::MoveBaseFeedback feedback;
+    feedback.base_position = current_position;
+    as_->publishFeedback(feedback);
 
     //check to see if we've moved far enough to reset our oscillation timeout
     if(distance(current_position, oscillation_pose_) >= oscillation_distance_)
@@ -990,7 +956,6 @@ namespace move_base {
         lock.unlock();
 
         as_->setAborted(move_base_msgs::MoveBaseResult(), "Failed to pass global plan to the controller.");
-        as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Failed to pass global plan to the controller.");
         return true;
       }
 
@@ -1025,8 +990,7 @@ namespace move_base {
           runPlanner_ = false;
           lock.unlock();
 
-          if (as_->isActive()) as_->setSucceeded(move_base_msgs::MoveBaseResult(), "Goal reached.");
-          if (as_path_->isActive()) as_path_->setSucceeded(move_base_msgs::MoveBasePathResult(), "Goal reached.");
+          as_->setSucceeded(move_base_msgs::MoveBaseResult(), "Goal reached.");
           return true;
         }
 
@@ -1055,10 +1019,10 @@ namespace move_base {
           ROS_DEBUG_NAMED("move_base", "The local planner could not find a valid plan.");
           ros::Time attempt_end = last_valid_control_ + ros::Duration(controller_patience_);
 
-          //no recovery or replanning if the path is not not a global plan
-          if (as_path_->isActive()) {
+          //no recovery or replanning if the path has not been generated by the global planner
+          if (planning_retries_ == -1) {
             ROS_ERROR("Aborting because a valid control could not be found.");
-            as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Failed to find a valid control.");
+            as_->setAborted(move_base_msgs::MoveBaseResult(), "Failed to find a valid control.");
             resetState();
             return true;
           }
@@ -1120,17 +1084,14 @@ namespace move_base {
           if(recovery_trigger_ == CONTROLLING_R){
             ROS_ERROR("Aborting because a valid control could not be found. Even after executing all recovery behaviors");
             as_->setAborted(move_base_msgs::MoveBaseResult(), "Failed to find a valid control. Even after executing recovery behaviors.");
-            as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Failed to find a valid control. Even after executing recovery behaviors.");
           }
           else if(recovery_trigger_ == PLANNING_R){
             ROS_ERROR("Aborting because a valid plan could not be found. Even after executing all recovery behaviors");
             as_->setAborted(move_base_msgs::MoveBaseResult(), "Failed to find a valid plan. Even after executing recovery behaviors.");
-            as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Failed to find a valid plan. Even after executing recovery behaviors.");
           }
           else if(recovery_trigger_ == OSCILLATION_R){
             ROS_ERROR("Aborting because the robot appears to be oscillating over and over. Even after executing all recovery behaviors");
             as_->setAborted(move_base_msgs::MoveBaseResult(), "Robot is oscillating. Even after executing recovery behaviors.");
-            as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Robot is oscillating. Even after executing recovery behaviors.");
           }
           resetState();
           return true;
@@ -1144,7 +1105,6 @@ namespace move_base {
         runPlanner_ = false;
         lock.unlock();
         as_->setAborted(move_base_msgs::MoveBaseResult(), "Reached a case that should not be hit in move_base. This is a bug, please report it.");
-        as_path_->setAborted(move_base_msgs::MoveBasePathResult(), "Reached a case that should not be hit in move_base. This is a bug, please report it.");
         return true;
     }
 

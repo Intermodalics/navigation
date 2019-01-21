@@ -5,7 +5,9 @@ find_package(catkin REQUIRED
         COMPONENTS
             roscpp
             tf
+            actionlib
             nav_msgs
+            move_base_msgs
         )
 
 find_package(Boost REQUIRED COMPONENTS system)
@@ -21,16 +23,24 @@ catkin_package(
         include
     LIBRARIES
         image_loader
+        map_generator
     CATKIN_DEPENDS
         roscpp
         tf
         nav_msgs
+        move_base_msgs
+        actionlib
 )
 
 include_directories( include ${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS} )
 add_library(image_loader src/image_loader.cpp)
 add_dependencies(image_loader ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(image_loader SDL SDL_image ${Boost_LIBRARIES})
+
+add_library(map_generator src/map_generator.cpp)
+target_link_libraries(map_generator
+    ${catkin_LIBRARIES}
+    )
 
 add_executable(map_server src/main.cpp)
 add_dependencies(map_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
@@ -44,6 +54,14 @@ add_executable(map_server-map_saver src/map_saver.cpp)
 add_dependencies(map_server-map_saver ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 set_target_properties(map_server-map_saver PROPERTIES OUTPUT_NAME map_saver)
 target_link_libraries(map_server-map_saver
+    map_generator
+    ${catkin_LIBRARIES}
+    )
+
+add_executable(map_server-service_based_map_saver src/service_based_map_saver.cpp)
+set_target_properties(map_server-service_based_map_saver PROPERTIES OUTPUT_NAME service_based_map_saver)
+target_link_libraries(map_server-service_based_map_saver
+    map_generator
     ${catkin_LIBRARIES}
     )
 

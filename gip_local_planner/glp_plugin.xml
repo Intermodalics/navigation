@@ -1,7 +1,0 @@
-<library path="lib/libomg_local_planner">
-  <class name="gip_local_planner/GIPPlannerROS" type="gip_local_planner::GIPPlannerROS" base_class_type="nav_core::BaseLocalPlanner">
-    <description>
-      Implementation of a local planner.
-    </description>
-  </class>
-</library>
